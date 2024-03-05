@@ -1,6 +1,9 @@
 import os
 from typing import Union
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from dotenv import load_dotenv
@@ -10,6 +13,14 @@ from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy import create_engine
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # Pydantic model
@@ -51,7 +62,7 @@ def root():
     return "Welcome to the FastAPI and Postgres in a dev container demonstration. Add /docs to the URL to see API methods."
 
 
-@app.get("/restaurant/{id}")
+@app.get("/restaurant/{id}", status_code=status.HTTP_200_OK)
 def get_restaurant(id: int):
     with Session(engine) as session:
         query = select(Restaurant).where(Restaurant.id == id)
@@ -59,7 +70,7 @@ def get_restaurant(id: int):
         return f"{restaurants[0].id}, {restaurants[0].name}, {restaurants[0].address}"
 
 
-@app.post("/restaurant")
+@app.post("/restaurant", status_code=status.HTTP_201_CREATED)
 def set_restaurant(item: RestaurantIn):
     with Session(engine) as session:
         restaurant = Restaurant(name=item.name, address=item.address)
@@ -68,11 +79,23 @@ def set_restaurant(item: RestaurantIn):
         return f"Added restaurant with id {restaurant.id}."
 
 
-@app.get("/all")
+@app.get("/all", status_code=status.HTTP_200_OK)
 def get_all_restaurants():
     rows = []
     with Session(engine) as session:
         resturants = session.query(Restaurant).all()
         for restaurant in resturants:
-            rows.append(f"{restaurant.id}, {restaurant.name}, {restaurant.address}")
-    return rows
+            json_compatible_item_data = jsonable_encoder(restaurant)
+            rows.append(json_compatible_item_data)
+    return JSONResponse(content=rows)
+
+
+@app.delete("/restaurant/{id}", status_code=status.HTTP_200_OK)
+def delete_restaurant(id: int):
+    with Session(engine) as session:
+        restaurant = session.query(Restaurant).filter(Restaurant.id == id).first()
+        if restaurant is None:
+            raise HTTPException(status_code=404, detail="to do not found")
+        session.query(Restaurant).filter(Restaurant.id == id).delete()
+        session.commit()
+        return f"Deleted restaurant with id {id}."
